@@ -1,0 +1,67 @@
+name: Android17 kernel configs source-compatibility dry run
+
+on:
+  push:
+    branches:
+      - audit/a17-kernel-configs-source-20261105
+    paths:
+      - '.github/workflows/a17-kernel-configs-dry-run.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  review-kernel-config-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compare exact official Android17 kernel configs against PE history
+        shell: bash
+        run: |
+          set -euo pipefail
+          pe=13d21442369967a49a72e955934d286ebfa4973d
+          aosp=553fd8d034110b4a63834e676533f5cc4c5e0089
+          aosp_tree=eb946e282af9337ec6ddaf2b2d6351034fd48f4a
+
+          git merge-base --is-ancestor "$pe" HEAD
+          git remote add aosp https://android.googlesource.com/kernel/configs
+          git fetch --no-tags aosp refs/tags/android-17.0.0_r1
+          test "$(git rev-parse FETCH_HEAD^{commit})" = "$aosp"
+          test "$(git rev-parse "$aosp^{tree}")" = "$aosp_tree"
+
+          echo "===== Official AOSP17 root ====="
+          git ls-tree -d --name-only "$aosp"
+          echo "===== PE old root ====="
+          git ls-tree -d --name-only "$pe"
+          echo "===== Ancestry ====="
+          if git merge-base HEAD "$aosp" >/dev/null; then
+            git merge-base HEAD "$aosp"
+          else
+            echo "UNRELATED ROOTS: no automatic merge authorized"
+            exit 0
+          fi
+
+          git config user.name "PixelExperience-Reborn CI"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          merge_rc=0
+          git merge --no-ff --no-commit "$aosp" || merge_rc=$?
+          echo "===== Merge dry run status ($merge_rc) ====="
+          git diff --name-only --diff-filter=U
+          git status --short | sed -n '1,90p'
+          echo "===== Potential obsolete PE launch fragments ====="
+          for d in p q r; do
+            if test -d "$d"; then
+              echo "PENDING_REVIEW: $d/ remains from legacy PE history"
+            fi
+          done
+          echo "===== Required Android17 kernel/configs source ====="
+          test -f t/android-5.10/Android.bp
+          test -f s/android-5.10/Android.bp
+          test -f kernel-lifetimes.xml
+          test -f Android.bp
+
+          echo "SOURCE AUDIT ONLY: nothing committed or pushed."
+          echo "No old launch fragments may be published into the AOSP17"
+          echo "FCM source owner without manual review and VTS compatibility."
