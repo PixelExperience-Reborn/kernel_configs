@@ -1,0 +1,83 @@
+name: Android17 kernel configs exact upstream merge
+
+on:
+  push:
+    branches:
+      - audit/a17-kernel-configs-source-20261105
+    paths:
+      - '.github/workflows/a17-kernel-configs-dry-run.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  merge-official-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge exact official AOSP17 kernel configs and discard obsolete active fragments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/audit/a17-kernel-configs-source-20261105"
+          pe=13d21442369967a49a72e955934d286ebfa4973d
+          official=553fd8d034110b4a63834e676533f5cc4c5e0089
+          official_tree=eb946e282af9337ec6ddaf2b2d6351034fd48f4a
+          workflow=.github/workflows/a17-kernel-configs-dry-run.yml
+
+          git merge-base --is-ancestor "$pe" HEAD
+          git remote add aosp https://android.googlesource.com/kernel/configs
+          git fetch --no-tags aosp refs/tags/android-17.0.0_r1
+          test "$(git rev-parse FETCH_HEAD^{commit})" = "$official"
+          test "$(git rev-parse "$official^{tree}")" = "$official_tree"
+          git merge-base HEAD "$official" >/dev/null
+
+          git config user.name "PixelExperience-Reborn CI"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff --no-commit "$official"
+
+          # PE modifications to Android P/Q (4.4, 4.9) are preserved in
+          # first-parent Git history, but AOSP17 is the sole source of the
+          # active kernel-config fragments, VTS constraints and tools.
+          # Restore the EXACT official tree, not a fabricated hybrid.
+          git restore --source="$official" --staged --worktree .
+          mkdir -p .github/workflows
+          git show "$GITHUB_SHA:$workflow" > "$workflow"
+          git add "$workflow"
+
+          # Compare the entire staged source tree to the reviewed official tag.
+          # The only permitted extra path is the integration workflow.
+          changed="$(git diff --cached --name-only "$official")"
+          if test "$changed" != "$workflow"; then
+            printf 'Unexpected non-AOSP17 content:\n%s\n' "$changed"
+            exit 1
+          fi
+
+          for stale in p q r; do
+            test ! -e "$stale" || {
+              echo "::error::Obsolete $stale/ kernel fragments retained"
+              exit 1
+            }
+          done
+          test -f Android.bp
+          test -f kernel-lifetimes.xml
+          test -f t/android-5.10/Android.bp
+          test -f s/android-5.10/Android.bp
+          test -f approved-ogki-builds.xml
+          # Do not reject pre-existing whitespace in Google's exact official tree.
+          # Check only our reviewed additional workflow against AOSP17.
+          git diff --cached --check "$official"
+          git commit -m "merge: adopt exact AOSP17 kernel configs while retaining PE ancestry"
+          git merge-base --is-ancestor "$pe" HEAD
+          git merge-base --is-ancestor "$official" HEAD
+          test "$(git diff --name-only "$official" HEAD)" = "$workflow"
+          test -z "$(git status --porcelain)"
+          git push origin HEAD:refs/heads/audit/a17-kernel-configs-source-20261105
+
+      - name: Scope
+        if: always()
+        run: |
+          echo "Source/tree merge only. Actual mondrian 5.10 .config, VTS,"
+          echo "Soong, boot and SELinux checks must run after device graph setup."
