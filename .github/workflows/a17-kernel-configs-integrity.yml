@@ -1,0 +1,64 @@
+name: Android17 kernel configs source integrity
+
+on:
+  push:
+    branches:
+      - audit/a17-kernel-configs-source-20261105
+    paths:
+      - '.github/workflows/a17-kernel-configs-integrity.yml'
+      - 'docs/ANDROID_17_KERNEL_CONFIGS_SOURCE_AUDIT.md'
+      - 'Android.bp'
+      - 'build/**'
+      - 's/**'
+      - 't/**'
+      - 'u/**'
+      - 'v/**'
+  pull_request:
+    paths:
+      - '.github/workflows/a17-kernel-configs-integrity.yml'
+      - 'Android.bp'
+      - 'build/**'
+      - 's/**'
+      - 't/**'
+      - 'u/**'
+      - 'v/**'
+
+permissions:
+  contents: read
+
+jobs:
+  exact-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify PE ancestry and exact AOSP17 configs source
+        shell: bash
+        run: |
+          set -euo pipefail
+          pe=13d21442369967a49a72e955934d286ebfa4973d
+          official=553fd8d034110b4a63834e676533f5cc4c5e0089
+          official_tree=eb946e282af9337ec6ddaf2b2d6351034fd48f4a
+          git merge-base --is-ancestor "$pe" HEAD
+          git merge-base --is-ancestor "$official" HEAD
+          test "$(git rev-parse "$official^{tree}")" = "$official_tree"
+
+          # No active PE kernel config modification: only review docs / CI
+          # are permitted beyond the frozen official AOSP17 kernel tree.
+          source_changes="$(git diff --name-only "$official" HEAD -- . ':(exclude).github' ':(exclude)docs')"
+          if test -n "$source_changes"; then
+            printf 'Unexpected non-AOSP17 source modifications:\n%s\n' "$source_changes"
+            exit 1
+          fi
+          for stale in p q r; do test ! -e "$stale"; done
+          test -f Android.bp
+          test -f kernel-lifetimes.xml
+          test -f approved-ogki-builds.xml
+          test -f s/android-5.10/Android.bp
+          test -f t/android-5.10/Android.bp
+          echo "PASS: official AOSP17 source, PE Git history and no obsolete launch fragments"
+      - name: Validation boundary
+        run: |
+          echo "Source integrity only; NOT an A17 Soong build, VTS kernel"
+          echo "config test, FCM/KMI or verified physical mondrian kernel."
