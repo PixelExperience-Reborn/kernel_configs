@@ -23,19 +23,23 @@ import (
 	"android/soong/android"
 )
 
+//go:generate go run ../../../build/blueprint/gobtools/codegen
+
 var (
 	pctx = android.NewPackageContext("android/soong/kernel/configs")
 
 	kconfigXmlFixupRule = pctx.AndroidStaticRule("kconfig_xml_fixup", blueprint.RuleParams{
-		Command:     `${kconfigXmlFixupCmd} --input ${in} --output-version ${outputVersion} --output-matrix ${out}`,
-		CommandDeps:  []string{"${kconfigXmlFixupCmd}"},
-		Description: "kconfig_xml_fixup ${in}",
+		Command:         `${kconfigXmlFixupCmd} --input ${in} --output-version ${outputVersion} --output-matrix ${out}`,
+		CommandDeps:     []string{"${kconfigXmlFixupCmd}"},
+		Description:     "kconfig_xml_fixup ${in}",
+		SandboxDisabled: true,
 	}, "outputVersion")
 
 	assembleVintfRule = pctx.AndroidStaticRule("assemble_vintf", blueprint.RuleParams{
-		Command:     `${assembleVintfCmd} ${flags} -i ${in} -o ${out}`,
-		CommandDeps:  []string{"${assembleVintfCmd}"},
-		Description: "assemble_vintf -i ${in}",
+		Command:         `${assembleVintfCmd} ${flags} -i ${in} -o ${out}`,
+		CommandDeps:     []string{"${assembleVintfCmd}"},
+		Description:     "assemble_vintf -i ${in}",
+		SandboxDisabled: true,
 	}, "flags")
 )
 
@@ -60,6 +64,13 @@ type KernelConfigRule struct {
 
 	outputPath android.WritablePath
 }
+
+// @auto-generate: gob
+type KernelConfigInfo struct {
+	OutputPath android.Path
+}
+
+var KernelConfigInfoProvider = blueprint.NewProvider[KernelConfigInfo]()
 
 func init() {
 	pctx.HostBinToolVariable("assembleVintfCmd", "assemble_vintf")
@@ -92,7 +103,7 @@ func (g *KernelConfigRule) DepsMutator(ctx android.BottomUpMutatorContext) {
 }
 
 func (g *KernelConfigRule) GenerateAndroidBuildActions(ctx android.ModuleContext) {
-	g.outputPath = android.PathForModuleOut(ctx, "matrix_" + g.Name() + ".xml")
+	g.outputPath = android.PathForModuleOut(ctx, "matrix_"+g.Name()+".xml")
 	genVersion := android.PathForModuleGen(ctx, "version.txt")
 	genConditionals := android.PathForModuleGen(ctx, "conditional.xml")
 	inputMeta := android.PathForModuleSrc(ctx, proptools.String(g.properties.Meta))
@@ -129,6 +140,10 @@ func (g *KernelConfigRule) GenerateAndroidBuildActions(ctx android.ModuleContext
 		Args: map[string]string{
 			"flags": kernelArg,
 		},
+	})
+
+	android.SetProvider(ctx, KernelConfigInfoProvider, KernelConfigInfo{
+		OutputPath: g.outputPath,
 	})
 
 }
